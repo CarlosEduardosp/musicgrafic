@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Linha do Tempo Musical 2</title>
+
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+
+<body>
+    <div id="sidebar">
+        <h3>🎶 Músicas Salvas</h3>
+        <ul id="savedList"></ul>
+    </div>
+
+    <div id="main">
+        <h2>Linha do Tempo Musical — Crie, Edite e Salve</h2>
+
+        <div id="timeline"></div>
+
+        <div class="buttons">
+            <button id="btnNovo">Nova Música</button>
+            <button id="btnSalvar">Salvar Gráfico Musical</button>
+        </div>
+    </div>
+
+    <script>
+
+        // ====================== DADOS DO GRÁFICO ======================
+        let trace = {
+            x: [0, 15, 30, 45, 60, 75, 90],
+            y: [0.2, 0.5, 0.7, 0.9, 0.3, 0.95, 0.4],
+            mode: 'lines+markers',
+            type: 'scatter',
+            line: { color: 'royalblue', width: 3 },
+            marker: { size: 10, color: 'crimson' }
+        };
+
+        let layout = {
+            title: 'Intensidade Musical ao Longo do Tempo',
+            xaxis: { title: 'Tempo (s)' },
+            yaxis: { title: 'Intensidade', range: [0, 1] }
+        };
+
+        let chart = null;
+        let listenersAtivos = false;
+
+        // ===============================================================
+        // ATIVAR INTERATIVIDADE
+        // ===============================================================
+        function ativarInteratividade() {
+            chart = document.getElementById("timeline");
+            if (!chart) return;
+
+            if (listenersAtivos && chart.removeAllListeners) {
+                chart.removeAllListeners("plotly_click");
+            }
+
+            let dragging = false;
+            let dragIndex = null;
+            let bloqueiaClique = false;
+
+            function getXY(event) {
+                const rect = chart.getBoundingClientRect();
+                const p = chart._fullLayout._plots.xy;
+                const xa = p.xaxis;
+                const ya = p.yaxis;
+
+                const rx = event.clientX - rect.left - xa._offset;
+                const ry = event.clientY - rect.top - ya._offset;
+
+                return {
+                    x: xa.p2d(rx),
+                    y: Math.max(0, Math.min(1, ya.p2d(ry)))
+                };
+            }
+
+            // ARRRASTAR PONTO
+            chart.on("plotly_click", function (data) {
+                if (bloqueiaClique) return;
+
+                if (data.event.button === 0 && data.points.length > 0) {
+                    dragging = true;
+                    dragIndex = data.points[0].pointIndex;
+                }
+            });
+
+            chart.addEventListener("mousemove", function (event) {
+                if (!dragging || dragIndex === null) return;
+                const coords = getXY(event);
+                trace.y[dragIndex] = coords.y;
+                Plotly.redraw('timeline');
+            });
+
+            chart.addEventListener("mouseup", () => { dragging = false; dragIndex = null; });
+            chart.addEventListener("mouseleave", () => { dragging = false; dragIndex = null; });
+
+            // CRIAR PONTO — DOBRO CLIQUE
+            chart.addEventListener("dblclick", function (event) {
+                const { x, y } = getXY(event);
+                if (x < 0 || y < 0 || y > 1) return;
+
+                trace.x.push(x);
+                trace.y.push(y);
+
+                const dados = trace.x.map((vx, i) => ({ x: vx, y: trace.y[i] }));
+                dados.sort((a, b) => a.x - b.x);
+
+                trace.x = dados.map(p => p.x);
+                trace.y = dados.map(p => p.y);
+
+                Plotly.redraw('timeline');
+
+                bloqueiaClique = true;
+                setTimeout(() => bloqueiaClique = false, 150);
+            });
+
+            // APAGAR PONTO — BOTÃO DIREITO
+            chart.on("plotly_click", function (data) {
+                if (data.event.button === 2 && data.points.length > 0) {
+                    const i = data.points[0].pointIndex;
+                    if (confirm("Excluir este ponto?")) {
+                        trace.x.splice(i, 1);
+                        trace.y.splice(i, 1);
+                        Plotly.redraw('timeline');
+                    }
+                }
+            });
+
+            chart.addEventListener("contextmenu", e => e.preventDefault());
+
+            listenersAtivos = true;
+        }
+
+        // ===============================================================
+        // DESENHAR GRÁFICO
+        // ===============================================================
+        function desenhar() {
+            Plotly.newPlot("timeline", [trace], layout)
+                .then(() => ativarInteratividade());
+        }
+
+        // ===============================================================
+        // LISTA DE SALVOS
+        // ===============================================================
+        function atualizarLista() {
+            const ul = document.getElementById("savedList");
+            ul.innerHTML = "";
+
+            const all = JSON.parse(localStorage.getItem("graficos") || "{}");
+
+            Object.keys(all).forEach(nome => {
+                const li = document.createElement("li");
+
+                const span = document.createElement("span");
+                span.textContent = nome;
+                span.style.cursor = "pointer";
+                span.onclick = () => {
+                    localStorage.setItem("selectedGraph", nome);
+                    location.reload();
+                };
+
+                const del = document.createElement("button");
+                del.textContent = "X";
+                del.className = "delBtn";
+                del.onclick = (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Excluir "${nome}"?`)) {
+                        delete all[nome];
+                        localStorage.setItem("graficos", JSON.stringify(all));
+
+                        if (localStorage.getItem("selectedGraph") === nome) {
+                            localStorage.removeItem("selectedGraph");
+                            location.reload();
+                        }
+
+                        atualizarLista();
+                    }
+                };
+
+                li.appendChild(span);
+                li.appendChild(del);
+                ul.appendChild(li);
+            });
+        }
+
+        // ===============================================================
+        // SALVAR
+        // ===============================================================
+        function salvarGrafico() {
+            let nome = localStorage.getItem("selectedGraph");
+
+            if (!nome) {
+                nome = prompt("Nome da música:");
+                if (!nome) return;
+            }
+
+            const all = JSON.parse(localStorage.getItem("graficos") || "{}");
+            all[nome] = { x: trace.x, y: trace.y };
+            localStorage.setItem("graficos", JSON.stringify(all));
+
+            localStorage.setItem("selectedGraph", nome);
+
+            atualizarLista();
+            alert("Música salva!");
+        }
+
+        // ===============================================================
+        // CARREGAR
+        // ===============================================================
+        function carregar(nome) {
+            const all = JSON.parse(localStorage.getItem("graficos") || "{}");
+            const g = all[nome];
+            if (!g) return;
+
+            trace.x = g.x;
+            trace.y = g.y;
+
+            desenhar();
+        }
+
+        // ===============================================================
+        // INÍCIO
+        // ===============================================================
+        window.onload = () => {
+            atualizarLista();
+
+            document.getElementById("btnSalvar").onclick = salvarGrafico;
+
+            document.getElementById("btnNovo").onclick = () => {
+                localStorage.removeItem("selectedGraph");
+                location.reload();
+            };
+
+            const sel = localStorage.getItem("selectedGraph");
+            if (sel) carregar(sel);
+            else desenhar();
+        };
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+        }
+
+        #sidebar {
+            width: 250px;
+            background: #222;
+            color: white;
+            padding: 15px;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+            overflow-y: auto;
+        }
+
+        #sidebar h3 {
+            text-align: center;
+            margin-top: 0;
+        }
+
+        #savedList {
+            list-style: none;
+            padding: 0;
+        }
+
+        #savedList li {
+            padding: 10px;
+            display: flex;
+            flex-direction: row;
+            align-items: baseline;
+            justify-content:space-between;
+            background: #333;
+            border-radius: 5px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        #savedList li:hover {
+            background: #444;
+        }
+
+        
+        #timeline {
+            width: 100%;
+            height: 500px;
+            margin: auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.15);
+            padding: 10px;
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        .buttons {
+            text-align: center;
+            margin: 20px;
+        }
+
+        button {
+            margin: 0 10px;
+            padding: 10px 20px;
+            background-color: royalblue;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: darkblue;
+        }
+
+        .delBtn {
+            background: red;
+            color: white;
+            border: none;
+            padding: 2px 7px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #main {
+            flex: 1;
+            padding: 20px;
+        }
+
+        #timeline {
+            width: 100%;
+            height: 500px;
+            background: white;
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.15);
+        }
+    </style>
+
+</body>
+
+</html>
