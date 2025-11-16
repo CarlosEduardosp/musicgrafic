@@ -4,7 +4,7 @@ import uvicorn
 
 
 # Caminho do arquivo HTML
-caminho = "D:\\projetos_backend\\musicgrafic\\lista_musica.html"
+caminho = "lista_musica.html"
 
 # Lê o conteúdo do arquivo como texto
 with open(caminho, "r", encoding="utf-8") as arquivo:
